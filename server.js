@@ -16,7 +16,6 @@ const app = express();
 // ── MIDDLEWARE ───────────────────────────────────
 app.use(cors({ origin: '*' }));
 app.use(express.json());
-app.use(express.static('Public'));
 
 // ── MONGODB CONNECTION ───────────────────────────
 mongoose.connect(process.env.MONGO_URI)
@@ -60,34 +59,23 @@ function authRequired(req, res, next) {
   }
 }
 
-/**
- * Robustly extracts and parses JSON from AI strings that might contain markdown or fluff.
- */
 function safeParseJSON(rawStr) {
   try {
-    // Remove markdown code blocks if present
     let clean = rawStr.replace(/```json|```/g, '').trim();
-    
-    // Find the actual boundaries of the JSON object or array
     const firstBracket = clean.indexOf('[');
-    const firstBrace = clean.indexOf('{');
-    
-    let startIdx = -1;
-    let endIdx = -1;
-
+    const firstBrace   = clean.indexOf('{');
+    let startIdx = -1, endIdx = -1;
     if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
       startIdx = firstBracket;
-      endIdx = clean.lastIndexOf(']') + 1;
+      endIdx   = clean.lastIndexOf(']') + 1;
     } else if (firstBrace !== -1) {
       startIdx = firstBrace;
-      endIdx = clean.lastIndexOf('}') + 1;
+      endIdx   = clean.lastIndexOf('}') + 1;
     }
-
     if (startIdx === -1 || endIdx <= startIdx) return JSON.parse(clean);
-    
     return JSON.parse(clean.substring(startIdx, endIdx));
   } catch (e) {
-    throw new Error("Failed to parse AI response as JSON");
+    throw new Error('Failed to parse AI response as JSON');
   }
 }
 
@@ -100,7 +88,7 @@ app.post('/auth/register', async (req, res) => {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password)
       return res.status(400).json({ error: 'Name, email and password are required' });
-    
+
     const existing = await User.findOne({ email });
     if (existing)
       return res.status(409).json({ error: 'An account with this email already exists' });
@@ -144,11 +132,30 @@ app.get('/auth/me', authRequired, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════
+// USER ROUTES
+// ══════════════════════════════════════════════════
+
+// ── PATCH /user/progress ─────────────────────────  ← NEW: was missing
+app.patch('/user/progress', authRequired, async (req, res) => {
+  try {
+    const { xp, stats, progress, streak } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      { xp, stats, progress, streak },
+      { new: true }
+    ).select('-password');
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save progress' });
+  }
+});
+
+// ══════════════════════════════════════════════════
 // GROQ AI CONFIG
 // ══════════════════════════════════════════════════
 
-const GROQ_KEY = process.env.GROQ_API_KEY;
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_KEY   = process.env.GROQ_API_KEY;
+const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 async function callGroq(systemPrompt, userPrompt) {
@@ -165,13 +172,33 @@ async function callGroq(systemPrompt, userPrompt) {
         { role: 'user',   content: userPrompt }
       ],
       max_tokens: 1500,
-      temperature: 0.5 // Lowered for more consistent JSON
+      temperature: 0.5
     })
   });
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
   return data.choices[0].message.content;
 }
+
+// ══════════════════════════════════════════════════
+// AI ROUTES
+// ══════════════════════════════════════════════════
+
+// ── POST /api/chat ───────────────────────────────  ← NEW: was missing
+app.post('/api/chat', authRequired, async (req, res) => {
+  try {
+    const { systemPrompt, userMessage } = req.body;
+    if (!userMessage)
+      return res.status(400).json({ error: 'userMessage is required' });
+
+    const system = systemPrompt || 'You are a helpful coding mentor for beginners. Explain everything clearly with examples.';
+    const reply  = await callGroq(system, userMessage);
+    res.json({ reply });
+  } catch (err) {
+    console.error('Chat error:', err.message);
+    res.status(500).json({ error: 'Chat failed. Please try again.' });
+  }
+});
 
 // ── POST /api/quiz ───────────────────────────────
 app.post('/api/quiz', authRequired, async (req, res) => {
@@ -182,12 +209,12 @@ app.post('/api/quiz', authRequired, async (req, res) => {
 Return ONLY this JSON array format:
 [{"q":"question","options":["A) op","B) op","C) op","D) op"],"correct":0,"explain":"text"}]`;
 
-    const raw = await callGroq(system, prompt);
+    const raw       = await callGroq(system, prompt);
     const questions = safeParseJSON(raw);
     res.json({ questions });
   } catch (err) {
     console.error('Quiz error:', err.message);
-    res.status(500).json({ error: "The AI had a hiccup generating the quiz. Please try again." });
+    res.status(500).json({ error: 'The AI had a hiccup generating the quiz. Please try again.' });
   }
 });
 
@@ -202,14 +229,25 @@ Respond ONLY with this JSON format:
 Code:
 ${code}`;
 
-    const raw = await callGroq(system, prompt);
+    const raw    = await callGroq(system, prompt);
     const review = safeParseJSON(raw);
     res.json({ review });
   } catch (err) {
     console.error('Review error:', err.message);
-    res.status(500).json({ error: "Review failed. The AI response was malformed." });
+    res.status(500).json({ error: 'Review failed. The AI response was malformed.' });
   }
 });
+
+// ── 404 CATCH-ALL ────────────────────────────────  ← NEW: helps debug missing routes
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/user')) {
+    return res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
+  }
+  next();
+});
+
+// ── STATIC FILES (must be LAST) ──────────────────  ← FIXED: moved below all routes
+app.use(express.static('Public'));
 
 // ── START ─────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
