@@ -16,7 +16,7 @@ const app = express();
 // ── MIDDLEWARE ───────────────────────────────────
 app.use(cors({ origin: '*' }));
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static('Public'));
 
 // ── MONGODB CONNECTION ───────────────────────────
 mongoose.connect(process.env.MONGO_URI)
