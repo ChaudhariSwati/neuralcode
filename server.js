@@ -15,7 +15,6 @@ require('dotenv').config();
 const app = express();
 
 // ── SECURITY CHECK ON STARTUP ────────────────────
-// Crash early if critical env vars are missing
 const REQUIRED_ENV = ['MONGO_URI', 'GROQ_API_KEY', 'JWT_SECRET'];
 REQUIRED_ENV.forEach(key => {
   if (!process.env[key]) {
@@ -27,25 +26,26 @@ REQUIRED_ENV.forEach(key => {
 const SECRET = process.env.JWT_SECRET;
 
 // ── MIDDLEWARE ───────────────────────────────────
-// Restrict CORS to known origins instead of wildcard '*'
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:3001')
-  .split(',')
-  .map(o => o.trim());
-
+// Allow all origins — safe because all AI routes require JWT auth
+// The API key never leaves the server regardless of CORS setting
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, curl, Postman)
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
-  },
+  origin: true,
   credentials: true
 }));
 
 // Limit request body size to prevent abuse
 app.use(express.json({ limit: '50kb' }));
 
+// ── STATIC FILES ─────────────────────────────────
+// Serve frontend BEFORE request logger to avoid noise
+app.use(express.static('Public'));
+
 // ── REQUEST LOGGER ───────────────────────────────
 app.use((req, res, next) => {
+  // Only log API and auth routes — skip static file requests
+  if (!req.path.startsWith('/api') && !req.path.startsWith('/auth') && !req.path.startsWith('/user')) {
+    return next();
+  }
   const start = Date.now();
   res.on('finish', () => {
     const ms    = Date.now() - start;
@@ -68,7 +68,7 @@ const UserSchema = new mongoose.Schema({
   name:      { type: String, required: true, trim: true, maxlength: 100 },
   email:     { type: String, required: true, unique: true, lowercase: true, trim: true },
   password:  { type: String, required: true },
-  role:      { type: String, default: 'student', enum: ['student','self','career','other'] },
+  role:      { type: String, default: 'student', enum: ['student', 'self', 'career', 'other'] },
   xp:        { type: Number, default: 0, min: 0 },
   streak:    { type: Number, default: 1, min: 0 },
   stats:     { type: [Number], default: [0, 0, 0, 0] },
@@ -100,7 +100,6 @@ function authRequired(req, res, next) {
   }
 }
 
-// Reusable input validation helper
 function validateFields(fields, body) {
   for (const [key, rules] of Object.entries(fields)) {
     const val = body[key];
@@ -252,7 +251,7 @@ app.patch('/user/progress', authRequired, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════
-// GROQ AI CONFIG
+// GROQ AI
 // ══════════════════════════════════════════════════
 
 const GROQ_KEY   = process.env.GROQ_API_KEY;
@@ -293,10 +292,7 @@ async function callGroq(systemPrompt, userPrompt) {
   return data.choices[0].message.content;
 }
 
-// ══════════════════════════════════════════════════
-// AI ROUTES
-// ══════════════════════════════════════════════════
-
+// ── POST /api/chat ───────────────────────────────
 app.post('/api/chat', authRequired, async (req, res) => {
   try {
     const { systemPrompt, userMessage } = req.body;
@@ -306,7 +302,7 @@ app.post('/api/chat', authRequired, async (req, res) => {
     if (userMessage.length > 2000)
       return res.status(400).json({ error: 'Message is too long (max 2000 characters)' });
 
-    const system = systemPrompt || 'You are a helpful coding mentor for beginners. Explain everything clearly with examples.';
+    const system = systemPrompt || 'You are a helpful coding mentor for beginners.';
     const reply  = await callGroq(system, userMessage.trim());
     res.json({ reply });
   } catch (err) {
@@ -315,6 +311,7 @@ app.post('/api/chat', authRequired, async (req, res) => {
   }
 });
 
+// ── POST /api/quiz ───────────────────────────────
 app.post('/api/quiz', authRequired, async (req, res) => {
   try {
     const { topic } = req.body;
@@ -324,7 +321,7 @@ app.post('/api/quiz', authRequired, async (req, res) => {
     if (topic.length > 200)
       return res.status(400).json({ error: 'Topic is too long (max 200 characters)' });
 
-    const system = 'You are a quiz generator. Return ONLY a raw JSON array.';
+    const system = 'You are a quiz generator. Return ONLY a raw JSON array with no markdown fences.';
     const prompt = `Create exactly 5 beginner-level multiple choice quiz questions about: "${topic.trim()}"
 Return ONLY this JSON array format with no extra text:
 [{"q":"question","options":["A) op","B) op","C) op","D) op"],"correct":0,"explain":"text"}]`;
@@ -342,6 +339,7 @@ Return ONLY this JSON array format with no extra text:
   }
 });
 
+// ── POST /api/review ─────────────────────────────
 app.post('/api/review', authRequired, async (req, res) => {
   try {
     const { code, lang, rewrite, desc } = req.body;
@@ -351,10 +349,10 @@ app.post('/api/review', authRequired, async (req, res) => {
     if (code.length > 10000)
       return res.status(400).json({ error: 'Code is too long (max 10,000 characters)' });
 
-    const system = 'You are a code reviewer. Return ONLY raw JSON.';
+    const system = 'You are a code reviewer. Return ONLY raw JSON with no markdown fences.';
     const prompt = `Review this ${lang || 'JavaScript'} code written by a beginner.
-Respond ONLY with this JSON format (no markdown, no extra text):
-{"overall":75,"grade":"B","metrics":{"readability":80,"correctness":70,"bestPractices":65},"issues":[{"type":"good","text":"positive feedback"},{"type":"warn","text":"suggestion"},{"type":"bad","text":"bug or issue"}],"summary":"2 sentence encouraging summary"${rewrite ? ',"rewrite":"improved code string"' : ''}}
+Respond ONLY with this JSON (no markdown, no extra text):
+{"overall":75,"grade":"B","metrics":{"readability":80,"correctness":70,"bestPractices":65},"issues":[{"type":"good","text":"positive feedback"},{"type":"warn","text":"suggestion"},{"type":"bad","text":"bug"}],"summary":"2 sentence summary"${rewrite ? ',"rewrite":"improved code"' : ''}}
 Code:
 ${code.trim()}
 ${desc ? `\nContext: ${desc}` : ''}`;
@@ -368,7 +366,7 @@ ${desc ? `\nContext: ${desc}` : ''}`;
   }
 });
 
-// ── 404 CATCH-ALL FOR API ROUTES ─────────────────
+// ── 404 FOR API ROUTES ───────────────────────────
 app.use((req, res, next) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/user')) {
     return res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` });
@@ -376,16 +374,13 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── STATIC FILES (must be LAST) ──────────────────
-app.use(express.static('Public'));
-
 // ── GLOBAL ERROR HANDLER ─────────────────────────
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err.message);
   res.status(500).json({ error: 'An unexpected error occurred. Please try again.' });
 });
 
-// ── GRACEFUL SHUTDOWN ─────────────────────────────
+// ── GRACEFUL SHUTDOWN ────────────────────────────
 process.on('SIGINT', async () => {
   console.log('\n🛑 Shutting down gracefully...');
   await mongoose.connection.close();
@@ -397,5 +392,6 @@ process.on('SIGINT', async () => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 NeuralCode server running on http://localhost:${PORT}`);
+  console.log(`🤖 AI engine: Groq (${GROQ_MODEL})`);
   console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
