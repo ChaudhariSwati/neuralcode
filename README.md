@@ -142,11 +142,11 @@ Built as a Final Year Project demonstrating full-stack development, AI integrati
 └─────────┼────────────────┼──────────────────┼───────────┘
           │                │                  │
           ▼                ▼                  ▼
-┌─────────────────┐  ┌────────────┐  ┌──────────────────┐
-│  MongoDB Atlas  │  │  Groq API  │  │  MongoDB Atlas   │
-│  (User Accounts │  │ (Llama 3.3 │  │  (Chat History   │
-│   XP, Progress) │  │  70B LLM)  │  │   Quiz Results)  │
-└─────────────────┘  └────────────┘  └──────────────────┘
+┌─────────────────┐  ┌──────────────────┐  ┌──────────────────┐
+│  MongoDB Atlas  │  │ Google Gemini    │  │  MongoDB Atlas   │
+│  (User Accounts │  │ API              │  │  (Chat History   │
+│   XP, Progress) │  │ (gemini-1.5-mini)│  │   Quiz Results)  │
+└─────────────────┘  └──────────────────┘  └──────────────────┘
 ```
 
 ---
@@ -192,8 +192,8 @@ User sends message
        ├── Invalid → 401 Unauthorized
        │
        ▼ Valid
-  POST to Groq API
-  (llama-3.3-70b-versatile)
+  POST to Google Gemini API
+  (gemini-1.5-mini-latest)
   with system prompt + message
        │
        ▼
@@ -211,7 +211,7 @@ User sends message
 User picks topic
        │
        ▼
-  Backend sends prompt to Groq:
+  Backend sends prompt to Gemini API:
   "Generate 5 MCQ questions about [topic]
    Return ONLY JSON array"
        │
@@ -238,7 +238,7 @@ User picks topic
 | **Frontend** | HTML5 + CSS3 + Vanilla JS | Single page app, no framework |
 | **Backend** | Node.js + Express.js | REST API server |
 | **Database** | MongoDB Atlas + Mongoose | User data, chat/quiz history |
-| **AI Engine** | Groq API (Llama 3.3 70B) | Chat, quiz generation, code review |
+| **AI Engine** | Google Gemini API (gemini-1.5-mini-latest) | Chat, quiz generation, code review |
 | **Auth** | JWT + bcryptjs | Secure authentication |
 | **Hosting** | Render.com | Free Node.js hosting |
 | **Version Control** | GitHub | Source code management |
@@ -248,7 +248,7 @@ User picks topic
 | Decision | Reason |
 |---|---|
 | Vanilla JS (no React) | Simpler for FYP, shows core JS understanding |
-| Groq over OpenAI | Free tier, extremely fast inference (500+ tokens/sec) |
+| Gemini for AI tasks | Free tier with generous limits, multimodal capabilities, reliable API |
 | MongoDB over SQL | Flexible schema for evolving user data, free Atlas tier |
 | Render over Vercel | Vercel doesn't support Express `app.listen()`, Render does |
 | bcrypt cost 12 | Balance between security and performance |
