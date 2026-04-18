@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════
 // NeuralCode — Backend Server (Improved)
-// AI Engine: Groq (llama-3.3-70b)
+// AI Engine: Google Gemini (gemini-1.5-mini-latest)
 // Improvements: security, input validation, logging
 // ═══════════════════════════════════════════════════
 
@@ -10,24 +10,19 @@ const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
 const cors     = require('cors');
 const fetch    = require('node-fetch');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const app = express();
 
 // ── SECURITY CHECK ON STARTUP ────────────────────
-const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET'];
+const REQUIRED_ENV = ['MONGO_URI', 'JWT_SECRET', 'GEMINI_API_KEY'];
 REQUIRED_ENV.forEach(key => {
   if (!process.env[key]) {
     console.error(`❌ Missing required environment variable: ${key}`);
     process.exit(1);
   }
 });
-
-if (!process.env.GROQ_API_KEY && !process.env.GEMINI_API_KEY) {
-  console.error('❌ Missing required environment variable: GROQ_API_KEY or GEMINI_API_KEY');
-  process.exit(1);
-}
-
 const SECRET = process.env.JWT_SECRET;
 
 // ── MIDDLEWARE ───────────────────────────────────
@@ -318,61 +313,25 @@ app.patch('/user/progress', authRequired, async (req, res) => {
 // AI BACKEND SUPPORT
 // ══════════════════════════════════════════════════
 
-const GROQ_KEY   = process.env.GROQ_API_KEY;
-const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const MODEL_NAME = 'gemini-1.5-mini-latest';
 
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_URL = 'https://api.labs.google.com/v1beta2/models/gemini-1.5-mini:predict';
-
-async function callGroq(systemPrompt, userPrompt) {
-  if (!GROQ_KEY) throw new Error('Groq API key is not configured');
-  let response;
+async function callGemini(systemPrompt, userPrompt) {
   try {
-    response = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + GROQ_KEY
-      },
-      body: JSON.stringify({
-        model: GROQ_MODEL,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user',   content: userPrompt }
-        ],
-        max_tokens: 1500,
-        temperature: 0.5
-      })
-    });
-  } catch (networkErr) {
-    throw new Error('Could not reach Groq API. Check your internet connection.');
+    const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+    const message = `${systemPrompt}\n\nUser: ${userPrompt}`;
+    
+    const result = await model.generateContent(message);
+    const response = await result.response;
+    const text = response.text();
+    
+    if (!text) throw new Error('Empty response from Gemini');
+    return text;
+  } catch (err) {
+    console.error('Gemini API error:', err.message);
+    throw new Error(`Gemini API error: ${err.message}`);
   }
-
-  if (!response.ok) {
-    const errText = await response.text();
-    console.error('Groq API error:', errText);
-    throw new Error(`Groq API error: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.choices[0].message.content;
-}
-
-function parseGeminiResponse(data) {
-  const candidate = data.candidates?.[0] || data.predictions?.[0] || data;
-  if (!candidate) throw new Error('Empty Gemini response');
-
-  const contentBlocks = candidate.content || candidate.output?.[0]?.content || [];
-  if (Array.isArray(contentBlocks) && contentBlocks.length > 0) {
-    return contentBlocks.map(block => block.text || '').join('');
-  }
-
-  if (typeof candidate.text === 'string') return candidate.text;
-  if (typeof data.text === 'string') return data.text;
-
-  throw new Error('Unable to parse Gemini response');
 }
 
 function simpleFallbackMentorReply(prompt) {
@@ -404,68 +363,13 @@ function simpleFallbackMentorReply(prompt) {
   return 'I could not reach the AI service right now, but here is a fallback mentor answer: Please ask your coding question again in simple terms and I will help you understand it clearly.';
 }
 
-async function callGemini(systemPrompt, userPrompt) {
-  if (!GEMINI_KEY) throw new Error('Gemini API key is not configured');
-
-  let response;
-  try {
-    response = await fetch(`${GEMINI_URL}?key=${encodeURIComponent(GEMINI_KEY)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        instances: [
-          { input: `${systemPrompt}\n\n${userPrompt}` }
-        ],
-        parameters: {
-          temperature: 0.7,
-          maxOutputTokens: 1000
-        }
-      })
-    });
-  } catch (networkErr) {
-    throw new Error('Could not reach Gemini API. Check your internet connection.');
-  }
-
-  const data = await response.json();
-  if (!response.ok) {
-    console.error('Gemini API error:', JSON.stringify(data));
-    throw new Error(`Gemini API error: ${response.status} ${response.statusText}`);
-  }
-
-  return parseGeminiResponse(data);
-}
-
 async function callAI(systemPrompt, userPrompt) {
-  const fallback = simpleFallbackMentorReply(userPrompt);
-
-  if (GEMINI_KEY) {
-    try {
-      return await callGemini(systemPrompt, userPrompt);
-    } catch (err) {
-      console.warn('Gemini API failed:', err.message);
-      if (GROQ_KEY) {
-        console.log('Falling back to Groq API due to Gemini failure');
-        try {
-          return await callGroq(systemPrompt, userPrompt);
-        } catch (groqErr) {
-          console.warn('Groq API also failed:', groqErr.message);
-          return fallback;
-        }
-      }
-      return fallback;
-    }
+  try {
+    return await callGemini(systemPrompt, userPrompt);
+  } catch (err) {
+    console.warn('AI call failed, using fallback:', err.message);
+    return simpleFallbackMentorReply(userPrompt);
   }
-
-  if (GROQ_KEY) {
-    try {
-      return await callGroq(systemPrompt, userPrompt);
-    } catch (groqErr) {
-      console.warn('Groq API failed:', groqErr.message);
-      return fallback;
-    }
-  }
-
-  return fallback;
 }
 
 app.post('/api/demo/ai', async (req, res) => {
@@ -474,6 +378,7 @@ app.post('/api/demo/ai', async (req, res) => {
     if (!systemPrompt || !userPrompt) {
       return res.status(400).json({ error: 'Missing systemPrompt or userPrompt' });
     }
+
     const reply = await callAI(systemPrompt, userPrompt);
     res.json({ reply });
   } catch (err) {
@@ -536,16 +441,25 @@ app.post('/api/quiz', authRequired, async (req, res) => {
     if (topic.length > 200)
       return res.status(400).json({ error: 'Topic is too long (max 200 characters)' });
 
-    const system = 'You are a quiz generator. Return ONLY a raw JSON array with no markdown fences.';
+    const system = 'You are a quiz generator. Return ONLY a raw JSON array with no markdown fences or extra text.';
     const prompt = `Create exactly 5 beginner-level multiple choice quiz questions about: "${topic.trim()}"
-Return ONLY this JSON array format with no extra text:
-[{"q":"question","options":["A) op","B) op","C) op","D) op"],"correct":0,"explain":"text"}]`;
+Return ONLY this JSON array with no markdown fences, no extra text, just pure JSON:
+[{"q":"question text?","options":["A) option one","B) option two","C) option three","D) option four"],"correct":0,"explain":"explanation text"}]`;
 
-    const raw       = await callAI(system, prompt);
-    const questions = safeParseJSON(raw);
+    const raw = await callAI(system, prompt);
+    
+    // Better error handling for JSON parsing
+    let questions;
+    try {
+      questions = safeParseJSON(raw);
+    } catch (parseErr) {
+      console.warn('Quiz JSON parse failed, using fallback:', parseErr.message);
+      // Return fallback quiz if Gemini fails
+      questions = generateFallbackQuiz(topic);
+    }
 
     if (!Array.isArray(questions) || questions.length === 0)
-      return res.status(500).json({ error: 'AI returned invalid quiz data. Please try again.' });
+      questions = generateFallbackQuiz(topic);
 
     res.json({ questions });
     // Note: quiz results saved via POST /history from frontend after completion
@@ -554,6 +468,58 @@ Return ONLY this JSON array format with no extra text:
     res.status(500).json({ error: err.message || 'Quiz generation failed. Please try again.' });
   }
 });
+
+function generateFallbackQuiz(topic) {
+  const topicLower = (topic || '').toLowerCase();
+  
+  // Determine quiz type based on topic
+  let quiz = [];
+  
+  if (topicLower.includes('variable') || topicLower.includes('data type')) {
+    quiz = [
+      {"q":"What is a variable?","options":["A) A named container for storing a value","B) A type of number","C) A programming language","D) A function parameter"],"correct":0,"explain":"A variable is a named container that stores a value which can change during program execution."},
+      {"q":"Which is a valid variable name?","options":["A) 123var","B) var-name","C) var_name","D) var name"],"correct":2,"explain":"Variable names can contain letters, numbers, and underscores, but cannot start with a number or contain spaces."},
+      {"q":"In JavaScript, which keyword declares a variable?","options":["A) variable","B) var","C) declare","D) let or const"],"correct":3,"explain":"JavaScript uses 'var', 'let', and 'const' to declare variables with different scoping rules."},
+      {"q":"What will this print: let x = 5; x = x + 3; console.log(x);","options":["A) 5","B) 8","C) undefined","D) Error"],"correct":1,"explain":"The variable x is first set to 5, then increased by 3, resulting in 8."},
+      {"q":"A variable declared with 'const' can be changed","options":["A) Yes, anytime","B) No, never","C) Only once after declaration","D) Only if reassigned"],"correct":1,"explain":"Variables declared with 'const' cannot be reassigned after initialization."}
+    ];
+  } else if (topicLower.includes('function') || topicLower.includes('method')) {
+    quiz = [
+      {"q":"What is a function?","options":["A) A variable that stores text","B) A reusable block of code that performs a task","C) A type of loop","D) A data structure"],"correct":1,"explain":"A function is a reusable block of code designed to perform a specific task."},
+      {"q":"How do you call a function named greet()?","options":["A) function greet()","B) call greet()","C) greet()","D) execute greet()"],"correct":2,"explain":"To call a function, use its name followed by parentheses: greet()"},
+      {"q":"What does a 'return' statement do?","options":["A) Exits the program","B) Sends a value back from the function","C) Clears variables","D) Repeats the function"],"correct":1,"explain":"The return statement sends a value back to where the function was called."},
+      {"q":"Can a function have no parameters?","options":["A) No, it requires at least one","B) Yes, functions can have zero parameters","C) Only if it returns a value","D) Only in certain languages"],"correct":1,"explain":"Functions can be defined with zero parameters and still be useful."},
+      {"q":"What is the purpose of parameters?","options":["A) To store global variables","B) To pass values into a function","C) To declare function names","D) To return multiple values"],"correct":1,"explain":"Parameters allow you to pass information into a function when you call it."}
+    ];
+  } else if (topicLower.includes('loop') || topicLower.includes('for') || topicLower.includes('while')) {
+    quiz = [
+      {"q":"What is a loop used for?","options":["A) Organizing code","B) Repeating code multiple times","C) Declaring variables","D) Defining functions"],"correct":1,"explain":"Loops allow you to repeat a block of code many times without rewriting it."},
+      {"q":"How many times will this loop run: for(let i=0; i<5; i++)","options":["A) 4 times","B) 5 times","C) 6 times","D) Infinite times"],"correct":1,"explain":"The loop runs from i=0 to i=4, which is 5 iterations total."},
+      {"q":"What is the difference between 'for' and 'while' loops?","options":["A) No difference","B) 'for' is faster","C) 'for' has a counter, 'while' checks a condition","D) 'while' is more modern"],"correct":2,"explain":"'for' loops typically have an initialization, condition, and increment; 'while' loops just check a condition."},
+      {"q":"What does 'break' do in a loop?","options":["A) Pauses the loop","B) Restarts the loop","C) Exits the loop","D) Skips to next iteration"],"correct":2,"explain":"The 'break' statement immediately exits the loop."},
+      {"q":"What does 'continue' do in a loop?","options":["A) Stops the loop","B) Skips the current iteration and continues with the next","C) Restarts from the beginning","D) Does nothing"],"correct":1,"explain":"The 'continue' statement skips the rest of the current iteration and moves to the next one."}
+    ];
+  } else if (topicLower.includes('array') || topicLower.includes('list')) {
+    quiz = [
+      {"q":"What is an array?","options":["A) A single value","B) A collection of values stored in order","C) A function","D) A data type"],"correct":1,"explain":"An array is a collection of values stored at different indices, accessible by position."},
+      {"q":"How do you access the first element of an array?","options":["A) array[1]","B) array[0]","C) array.first()","D) array(0)"],"correct":1,"explain":"Array indexing starts at 0, so the first element is at index 0."},
+      {"q":"What will this return: [1,2,3].length","options":["A) 0","B) 1","C) 3","D) undefined"],"correct":2,"explain":"The length property returns the number of elements in the array, which is 3."},
+      {"q":"How do you add an element to an array?","options":["A) array.add(item)","B) array.push(item)","C) array[0] = item","D) Both B and C"],"correct":3,"explain":"You can use push() to add to the end, or directly assign to an index."},
+      {"q":"What does array.map() do?","options":["A) Finds elements","B) Removes elements","C) Transforms each element and returns a new array","D) Sorts the array"],"correct":2,"explain":"map() applies a function to each element and returns a new array with the results."}
+    ];
+  } else {
+    // Generic beginner quiz
+    quiz = [
+      {"q":"What is programming?","options":["A) Writing text on a computer","B) Giving instructions to a computer in a structured way","C) Using software applications","D) Designing websites"],"correct":1,"explain":"Programming is the process of creating a set of instructions for a computer to follow."},
+      {"q":"What is the purpose of comments in code?","options":["A) To make code run faster","B) To confuse other programmers","C) To explain code for humans to read","D) To store data"],"correct":2,"explain":"Comments are notes that explain code logic and are ignored during execution."},
+      {"q":"What is a data type?","options":["A) A way to organize files","B) A category of data like number, text, or boolean","C) A programming language","D) A function"],"correct":1,"explain":"Data types like int, string, and boolean categorize the kind of data being stored."},
+      {"q":"What does an 'if' statement do?","options":["A) Repeats code","B) Declares a variable","C) Executes code based on a condition","D) Creates a function"],"correct":2,"explain":"An 'if' statement checks whether a condition is true and executes code accordingly."},
+      {"q":"What is debugging?","options":["A) Removing features from code","B) Finding and fixing errors in code","C) Adding more code","D) Rewriting a program"],"correct":1,"explain":"Debugging is the process of identifying and correcting errors in your program."}
+    ];
+  }
+  
+  return quiz;
+}
 
 // ── POST /api/review ─────────────────────────────
 app.post('/api/review', authRequired, async (req, res) => {
@@ -1147,6 +1113,6 @@ process.on('SIGINT', async () => {
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`🚀 NeuralCode server running on http://localhost:${PORT}`);
-  console.log(`🤖 AI engine: Groq (${GROQ_MODEL})`);
+  console.log(`🤖 AI engine: Gemini (${MODEL_NAME})`);
   console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
