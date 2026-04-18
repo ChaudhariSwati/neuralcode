@@ -6,12 +6,12 @@
 
 ### *Your personal AI tutor that explains code like a patient teacher, not a textbook*
 
-> 🔗 **Live Demo:** [neuralcode.onrender.com](https://neuralcode.onrender.com/)
+[![Live Demo](https://img.shields.io/badge/🚀%20Live%20Demo-neuralcode.onrender.com-00c9a7?style=for-the-badge)](https://neuralcode.onrender.com)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=for-the-badge&logo=mongodb&logoColor=white)](https://mongodb.com)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
-> Project | B.Tech Computer Science & Engineering
+> 🎓 **Final Year Project** | B.Tech Computer Science & Engineering
 
 </div>
 
@@ -48,7 +48,7 @@ Gives a "Try it yourself" challenge 🎯
 Tracks their XP and progress 📊
 ```
 
-Built as a interesting  project demonstrating full-stack development, AI integration, database design, security implementation, and cloud deployment.
+Built as a Final Year Project demonstrating full-stack development, AI integration, database design, security implementation, and cloud deployment.
 
 ---
 
