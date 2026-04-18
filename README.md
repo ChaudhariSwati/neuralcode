@@ -2,7 +2,7 @@
 
 <img src="https://img.shields.io/badge/NeuralCode-AI%20Coding%20Mentor-6c47ff?style=for-the-badge&logo=brain&logoColor=white" alt="NeuralCode"/>
 
-# 🧠 NeuralCode — AI-Powered Coding Mentor
+# 🧠 CodeVerse — AI-Powered Coding Mentor
 
 ### *Your personal AI tutor that explains code like a patient teacher, not a textbook*
 
@@ -38,11 +38,11 @@
 
 ## 🌟 Overview
 
-**NeuralCode** is a full-stack AI-powered coding mentor built for absolute beginners. Instead of just answering questions, it teaches — using real-life analogies, code examples, interactive quizzes, and personalized code reviews.
+**CodeVerse** is a full-stack AI-powered coding mentor built for absolute beginners. Instead of just answering questions, it teaches — using real-life analogies, code examples, interactive quizzes, and personalized code reviews.
 
 ```
 A student types: "What is a variable?"
-NeuralCode explains it like a labeled box 📦
+CodeVerse explains it like a labeled box 📦
 Shows a code example 💻
 Gives a "Try it yourself" challenge 🎯
 Tracks their XP and progress 📊
@@ -405,8 +405,8 @@ User picks topic
 ### Step 1 — Clone
 
 ```bash
-git clone https://github.com/ChaudhariSwati/neuralcode.git
-cd neuralcode
+git clone https://github.com/ChaudhariSwati/CodeVerse.git
+cd CodeVerse
 ```
 
 ### Step 2 — Install dependencies
@@ -439,7 +439,7 @@ http://localhost:3001
 You should see:
 ```
 ✅ MongoDB connected
-🚀 NeuralCode server running on http://localhost:3001
+🚀 CodeVerse server running on http://localhost:3001
 🤖 AI engine: Groq (llama-3.3-70b-versatile)
 ```
 
@@ -521,9 +521,9 @@ JWT_SECRET     = ...
 
 | Document | Description |
 |---|---|
-| `NeuralCode_SRS.docx` | Software Requirements Specification — functional & non-functional requirements, use cases |
-| `NeuralCode_Project_Report.docx` | Full 8-chapter academic report — literature review, design, implementation, testing |
-| `NeuralCode_Test_Plan.docx` | 53 test cases with expected and actual results |
+| `CodeVerse_SRS.docx` | Software Requirements Specification — functional & non-functional requirements, use cases |
+| `CodeVerse_Project_Report.docx` | Full 8-chapter academic report — literature review, design, implementation, testing |
+| `CodeVerse_Test_Plan.docx` | 53 test cases with expected and actual results |
 
 ---
 
@@ -546,7 +546,8 @@ MIT License — free to use, modify and distribute
 
 <div align="center">
 
-Built with ❤️ using **Node.js** · **MongoDB** · **Groq AI** · **Vanilla JavaScript**
+
+
 
 ⭐ Star this repo if you found it helpful!
 
